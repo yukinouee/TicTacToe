@@ -2,11 +2,13 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Random;
+
 import java.io.BufferedReader;
 import java.io.PrintWriter;
 import java.io.IOException;
 
 public class Game {
+    public static final String[] battleModes = { "Random (CPU)", "Better (CPU)", "Expert (CPU)", "Human" };
     private Board board;
     public Player[] players;
     private int playerIndex;
@@ -20,25 +22,37 @@ public class Game {
     public void start() {
         while (true) {
             Player currentPlayer = this.players[this.playerIndex];
-            currentPlayer.play(this.board);
-            System.out.println(board.render("Grid"));
 
-            if (this.board.isWin(this.playerIndex)) {
-                System.out.println(Board.MARKS.get(this.playerIndex) + " won!");
+            for (Player player : this.players) {
+                if (player == currentPlayer) {
+                    player.sendMessage(this.board, "Your Turn");
+                } else {
+                    player.sendMessage(this.board, "Opponent's Turn");
+                }
+            }
+
+            currentPlayer.play(this.board);
+
+            if (this.board.checkWin(this.playerIndex)) {
+                for (Player player : this.players) {
+                    player.sendMessage(this.board, Board.MARKS.get(this.playerIndex) + " won!");
+                }
                 break;
             } else if (board.isEnd()) {
-                System.out.println("Draw");
+                for (Player player : this.players) {
+                    player.sendMessage(this.board, "Draw");
+                }
                 break;
             }
 
-            this.playerIndex ^= 1;
+            this.playerIndex ^= 1;  // Switch game turns
         }
     }
 }
 
 class Board {
-    static final int HEIGHT = 3;
-    static final int WIDTH = 3;
+    public static final int ROW = 3;
+    public static final int COL = 3;
 
     static final int EMPTY = -1;
 
@@ -52,9 +66,9 @@ class Board {
 
     Board() {
         this.counter = 0;
-        this.state = new int[HEIGHT * WIDTH];
+        this.state = new int[ROW * COL];
 
-        for (int index = 0; index < HEIGHT * WIDTH; index++) {
+        for (int index = 0; index < ROW * COL; index++) {
             this.state[index] = EMPTY;
         }
     }
@@ -77,7 +91,7 @@ class Board {
                 break;
         }
 
-        for (int index = 0; index < HEIGHT * WIDTH; index++) {
+        for (int index = 0; index < ROW * COL; index++) {
             if (this.state[index] != EMPTY) {
                 field = field.replace(Integer.toString(index), MARKS.get(this.state[index]));
             }
@@ -102,7 +116,7 @@ class Board {
         return true;
     }
 
-    boolean isWin(int playerIndex) {
+    boolean checkWin(int playerIndex) {
         if (
             (this.state[0] == playerIndex && this.state[1] == playerIndex && this.state[2] == playerIndex) || 
             (this.state[3] == playerIndex && this.state[4] == playerIndex && this.state[5] == playerIndex) || 
@@ -119,7 +133,7 @@ class Board {
     }
 
     boolean isEnd() {
-        for (int index = 0; index < HEIGHT * WIDTH; index++) {
+        for (int index = 0; index < ROW * COL; index++) {
             if (this.state[index] == EMPTY) return false;
         }
         return true;
@@ -127,7 +141,7 @@ class Board {
 
     int[] validMoves() {
         ArrayList<Integer> moves = new ArrayList<Integer>();
-        for (int index = 0; index < HEIGHT * WIDTH; index++) {
+        for (int index = 0; index < ROW * COL; index++) {
             if (this.state[index] == EMPTY) {
                 moves.add(index);
             }
@@ -148,24 +162,26 @@ class Move {
 
 abstract class Player {
     public abstract void play(Board board);
+    public abstract void sendMessage(Board board, String content);
 }
 
 class HumanPlayer extends Player {
+    private int playerIndex;
     private BufferedReader in;
     private PrintWriter out;
 
-    HumanPlayer(BufferedReader in, PrintWriter out) {
+    HumanPlayer(int playerIndex, BufferedReader in, PrintWriter out) {
+        this.playerIndex = playerIndex;
         this.in = in;
         this.out = out;
     }
 
     @Override
     public void play(Board board) {
-        System.out.print("Human Player: ");
         try {
             while (true) {
                 this.out.println(board.render("Line"));
-                this.out.println("0-8の数字を入力してください: ");
+                this.out.println("Your Turn: " + Board.MARKS.get(this.playerIndex));
                 String input = this.in.readLine();
                 System.out.println(input);
                 
@@ -173,7 +189,6 @@ class HumanPlayer extends Player {
                     int index = Integer.parseInt(input);
                     boolean success = board.move(index);
                     if (success) break;
-                    else this.out.println("適切な数字を入力してください");
                 } catch (NumberFormatException numberFormatException) {
                     System.err.println(numberFormatException);
                 }
@@ -181,6 +196,12 @@ class HumanPlayer extends Player {
         } catch (IOException ioException) {
             System.err.println(ioException);
         }
+    }
+
+    @Override
+    public void sendMessage(Board board, String content) {
+        this.out.println(board.render("Line"));
+        this.out.println(content);
     }
 }
 
@@ -196,8 +217,13 @@ class RandomPlayer extends Player {
         int[] validMoves = board.validMoves();
         System.out.println(validMoves.length);
         int index = validMoves[this.random.nextInt(validMoves.length)];
-        System.out.println("Random Player(CPU): " + index);
         board.move(index);
+    }
+
+    @Override
+    public void sendMessage(Board board, String content) {
+        System.out.println(board.render("Grid"));
+        System.out.println(content);
     }
 }
 
@@ -215,16 +241,20 @@ class BetterPlayer extends Player {
         int[] validMoves = board.validMoves();
         for (int index = 0; index < validMoves.length; index++) {
             board.move(validMoves[index]);
-            if (board.isWin(this.playerIndex)) {
-                System.out.println("Better Player(CPU): " + index);
+            if (board.checkWin(this.playerIndex)) {
                 return;
             }
             board.unmove(validMoves[index]);
         }
 
         int index = validMoves[this.random.nextInt(validMoves.length)];
-        System.out.println("Better Player(CPU): " + index);
         board.move(index);
+    }
+
+    @Override
+    public void sendMessage(Board board, String content) {
+        System.out.println(board.render("Grid"));
+        System.out.println(content);
     }
 }
 
@@ -241,9 +271,9 @@ class ExpertPlayer extends Player {
 
         int nextPlayerIndex = playerIndex ^ 1;
 
-        if (board.isWin(maximizePlayerIndex)) {
+        if (board.checkWin(maximizePlayerIndex)) {
             return new Move(1, Board.EMPTY);
-        } else if (board.isWin(minimizePlayerIndex)) {
+        } else if (board.checkWin(minimizePlayerIndex)) {
             return new Move(-1, Board.EMPTY);
         } else if (board.isEnd()) {
             return new Move(0, Board.EMPTY);
@@ -285,7 +315,12 @@ class ExpertPlayer extends Player {
     @Override
     public void play(Board board) {
         Move move = this.minimax(board, this.playerIndex);
-        System.out.println("Expert Player: " + move.moveIndex);
         board.move(move.moveIndex);
+    }
+
+    @Override
+    public void sendMessage(Board board, String content) {
+        System.out.println(board.render("Grid"));
+        System.out.println(content);
     }
 }

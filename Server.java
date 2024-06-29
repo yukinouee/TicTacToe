@@ -1,15 +1,17 @@
 import java.io.*;
-import java.net.*;
+
+import java.net.ServerSocket;
+import java.net.Socket;
 
 public class Server {
     public static final int PORT = 8080;
 
     private ServerSocket serverSocket;
-    private Socket socket1;
+    private Socket[] clienSockets;
+
     private BufferedReader in1;
     private PrintWriter out1;
 
-    private Socket socket2;
     private BufferedReader in2;
     private PrintWriter out2;
 
@@ -20,16 +22,18 @@ public class Server {
         Server server = new Server();
         
         server.start();
-        server.connect();
-        
-        server.setupGame();
 
-        try {
-            server.game.start();
-        } catch (Exception e) {
-            System.err.println(e);
+        while (true) {
+            server.clienSockets = new Socket[2];
+            server.connect();
+            server.initGame();
+
+            try {
+                new GameHandler(server.game, server.clienSockets).start();
+            } catch (Exception e) {
+                System.err.println(e);
+            }
         }
-        server.close();
     }
 
     void start() {
@@ -44,24 +48,29 @@ public class Server {
     void connect() {
         try {
             // Connect the first client
-            this.socket1 = this.serverSocket.accept();
-            System.out.println("Connection accepted." + this.socket1);
+            this.clienSockets[0] = this.serverSocket.accept();
+            System.out.println("Connection accepted." + this.clienSockets[0]);
+            this.clienSockets[0] = this.clienSockets[0];
 
-            this.in1 = new BufferedReader(new InputStreamReader(this.socket1.getInputStream()));
-            this.out1 = new PrintWriter(new BufferedWriter(new OutputStreamWriter(this.socket1.getOutputStream())), true);
+            this.in1 = new BufferedReader(new InputStreamReader(this.clienSockets[0].getInputStream()));
+            this.out1 = new PrintWriter(new BufferedWriter(new OutputStreamWriter(this.clienSockets[0].getOutputStream())), true);
             
             this.out1.println("Client 1");
-            this.out1.println("Battle Mode: ");
-            battleMode = this.in1.readLine();
+            this.battleMode = this.in1.readLine();
 
-            if (!battleMode.equals("Human")) return;
+            if (this.battleMode == null) {
+                this.clienSockets[0].close();
+                return;
+            }
+
+            if (!this.battleMode.equals("Human")) return;
 
             // Connect the second client (if necessary)
-            this.socket2 = this.serverSocket.accept();
-            System.out.println("Connection accepted." + this.socket2);
+            this.clienSockets[1] = this.serverSocket.accept();
+            System.out.println("Connection accepted." + this.clienSockets[1]);
 
-            this.in2 = new BufferedReader(new InputStreamReader(this.socket2.getInputStream()));
-            this.out2 = new PrintWriter(new BufferedWriter(new OutputStreamWriter(this.socket2.getOutputStream())), true);
+            this.in2 = new BufferedReader(new InputStreamReader(this.clienSockets[1].getInputStream()));
+            this.out2 = new PrintWriter(new BufferedWriter(new OutputStreamWriter(this.clienSockets[1].getOutputStream())), true);
 
             this.out2.println("Client 2");
 
@@ -70,26 +79,48 @@ public class Server {
         }
     }
 
-    void setupGame() {
-        if (battleMode.equals("Random")) {
-            this.game = new Game(new RandomPlayer(), new HumanPlayer(this.in1, this.out1));
-        } else if (battleMode.equals("Better")) {
-            this.game = new Game(new BetterPlayer(0), new HumanPlayer(this.in1, this.out1));
-        } else if (battleMode.equals("Expert")) {
-            this.game = new Game(new ExpertPlayer(0), new HumanPlayer(this.in1, this.out1));
-        } else if (battleMode.equals("Human")) {
-            this.game = new Game(new HumanPlayer(this.in1, this.out1), new HumanPlayer(this.in2, this.out2));
+    void initGame() {
+        if (this.battleMode == null) return;
+        if (this.battleMode.equals("Random (CPU)")) {
+            this.game = new Game(new RandomPlayer(), new HumanPlayer(1, this.in1, this.out1));
+        } else if (this.battleMode.equals("Better (CPU)")) {
+            this.game = new Game(new BetterPlayer(0), new HumanPlayer(1, this.in1, this.out1));
+        } else if (this.battleMode.equals("Expert (CPU)")) {
+            this.game = new Game(new ExpertPlayer(0), new HumanPlayer(1, this.in1, this.out1));
+        } else if (this.battleMode.equals("Human")) {
+            this.game = new Game(new HumanPlayer(0, this.in1, this.out1), new HumanPlayer(1, this.in2, this.out2));
         }
     }
 
     void close() {
         System.out.println("Closing...");
         try {
-            if (this.socket1 != null) this.socket1.close();
-            if (this.socket2 != null) this.socket2.close();
             if (this.serverSocket != null) this.serverSocket.close();
         } catch (IOException ioException) {
             System.err.println(ioException);
+        }
+    }
+}
+
+class GameHandler extends Thread {
+    private Game game;
+    private Socket[] clientSockets;
+
+    GameHandler(Game game, Socket[] clientSockets) {
+        this.game = game;
+        this.clientSockets = clientSockets;
+    }
+
+    @Override
+    public void run() {
+        game.start();
+
+        for (Socket clientSocket : this.clientSockets) {
+            try {
+                if (clientSocket != null) clientSocket.close();
+            } catch (IOException ioException) {
+                System.err.println(ioException);
+            }
         }
     }
 }

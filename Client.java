@@ -1,56 +1,53 @@
 import java.io.*;
-import java.net.*;
-import java.util.Scanner;
+
+import java.net.InetAddress;
+import java.net.Socket;
+
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 public class Client {
     private Socket socket;
     private BufferedReader in;
     private PrintWriter out;
 
-    private JFrame frame; // JFrameを追加
-    private JPanel boardPanel; // ボードを表示するためのパネルを追加
-    private JLabel[][] boardLabels; // ボードのセルを表示するためのラベルを追加
+    private String battleMode;
+
+    private JFrame frame;
+    private JPanel mainPanel;
+    private JPanel boardPanel;
+    private JPanel messagePanel;
+    private JLabel[][] boardLabels;
+    private JLabel messageLabel;
+
+    Client() {
+        this.battleMode = "Human";  // default
+    }
 
     public static void main(String[] args) {
         Client client = new Client();
-        Scanner scanner = new Scanner(System.in);
 
         client.connect();
 
         try {
-            String input = client.in.readLine();
-            if (input.equals("Client 1")) {
-                input = client.in.readLine();
-                if (input.equals("Battle Mode: ")) {
-                    System.out.print(input);
-                    client.out.println(scanner.nextLine());
-                }
-            }
-        } catch (IOException ioException) {
-            System.err.println(ioException);
-        }
+            String clientName = client.in.readLine();
+            if (clientName.equals("Client 1")) client.selectGameMode();
 
-        // Swingコンポーネントの初期化と表示
-        client.initializeGUI();
+            client.showGameScreen();
 
-        try {
             while (true) {
                 String boardData = client.in.readLine();
-                // System.out.println(boardData);
-
-                // ボードの状態を更新して表示
                 client.updateBoardLabels(boardData);
+                System.out.println(boardData);
 
-                String input = client.in.readLine();
-                if (input.equals("0-8の数字を入力してください: ") || input.equals("適切な数字を入力してください")) {
-                    System.out.print(input);
-                    String str = scanner.nextLine();
-                    client.out.println(str);
-                }
-                if (input.equals("Draw") || input.contains("won")) {
-                    System.out.println(input);
+                String content = client.in.readLine();
+                client.updateMessageLabels(content);
+                System.out.println(content);
+                System.out.print("\n");
+
+                if (content.equals("Draw") || content.contains("won")) {
                     break;
                 }
             }
@@ -59,8 +56,6 @@ public class Client {
         } finally {
             client.close();
         }
-
-        scanner.close();
     }
 
     void connect() {
@@ -78,33 +73,60 @@ public class Client {
         }
     }
 
-    void initializeGUI() {
-        frame = new JFrame("Tic-Tac-Toe");
+    void selectGameMode() {
+        int selectedModeIndex = JOptionPane.showOptionDialog(null, "Choose a battle mode:", "Battle Mode",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, Game.battleModes, null);
+        
+        if (selectedModeIndex == JOptionPane.CLOSED_OPTION) {
+            this.close();
+            return;
+        }
+
+        this.battleMode = Game.battleModes[selectedModeIndex];
+        this.out.println(this.battleMode);
+    }
+
+    void showGameScreen() {
+        frame = new JFrame(String.format("Tic-Tac-Toe (vs. %s)", this.battleMode));
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        // ボードを表示するパネルを作成
+        mainPanel = new JPanel();
+        mainPanel.setLayout(new BorderLayout());
+
         boardPanel = new JPanel() {
             @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                drawLine(g);
+            protected void paintComponent(Graphics graphics) {
+                super.paintComponent(graphics);
+                drawLine(graphics);
             }
         };
-        boardPanel.setLayout(new GridLayout(3, 3));
+        boardPanel.setLayout(new GridLayout(Board.ROW, Board.COL));
+        boardPanel.setPreferredSize(new Dimension(300, 300));
 
-        // ボードのセルを表示するラベルを作成してパネルに追加
-        boardLabels = new JLabel[3][3];
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                boardLabels[i][j] = new JLabel();
-                boardLabels[i][j].setHorizontalAlignment(SwingConstants.CENTER);
-                boardLabels[i][j].setFont(new Font("Arial", Font.BOLD, 50));
-                boardPanel.add(boardLabels[i][j]);
+        boardLabels = new JLabel[Board.ROW][Board.COL];
+        for (int row = 0; row < Board.ROW; row++) {
+            for (int col = 0; col < Board.COL; col++) {
+                boardLabels[row][col] = new JLabel();
+                boardLabels[row][col].setHorizontalAlignment(SwingConstants.CENTER);
+                boardLabels[row][col].setFont(new Font("Arial", Font.BOLD, 50));
+                boardLabels[row][col].addMouseListener(new CustomMouseAdapter(row, col, out));
+                boardPanel.add(boardLabels[row][col]);
             }
         }
 
-        frame.getContentPane().add(boardPanel);
-        frame.setSize(300, 300);
+        messagePanel = new JPanel();
+        messagePanel.setLayout(new BorderLayout());
+        messagePanel.setPreferredSize(new Dimension(300, 75));
+        messageLabel = new JLabel();
+        messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        messageLabel.setFont(new Font("Arial", Font.BOLD, 30));
+        messagePanel.add(messageLabel);
+
+        mainPanel.add(messagePanel, BorderLayout.NORTH);
+        mainPanel.add(boardPanel, BorderLayout.CENTER);
+
+        frame.getContentPane().add(mainPanel);
+        frame.setSize(300, 375);
         frame.setVisible(true);
     }
 
@@ -112,7 +134,6 @@ public class Client {
         int width = boardPanel.getWidth();
         int height = boardPanel.getHeight();
 
-        // 格子の描画
         g.setColor(Color.BLACK);
         g.drawLine(width / 3, 0, width / 3, height);
         g.drawLine((2 * width) / 3, 0, (2 * width) / 3, height);
@@ -121,19 +142,50 @@ public class Client {
     }
 
     void updateBoardLabels(String boardData) {
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                boardLabels[i][j].setText(String.valueOf(boardData.charAt(i * 3 + j)));
+        for (int row = 0; row < Board.ROW; row++) {
+            for (int col = 0; col < Board.COL; col++) {
+                int index = row * Board.COL + col;
+                String data = String.valueOf(boardData.charAt(index));
+                if (data.equals("X") || data.equals("O")) {
+                    boardLabels[row][col].setText(data);
+                } else {
+                    boardLabels[row][col].setText("");
+                }
             }
         }
+        boardPanel.repaint();
+    }
+
+    void updateMessageLabels(String message) {
+        messageLabel.setText(message);
     }
 
     void close() {
         System.out.println("Closing...");
         try {
+            if (this.in != null) this.in.close();
+            if (this.out != null) this.out.close();
             if (this.socket != null) this.socket.close();
         } catch (IOException ioException) {
             System.err.println(ioException);
         }
+    }
+}
+
+class CustomMouseAdapter extends MouseAdapter {
+    private int row;
+    private int col;
+    private PrintWriter out;
+
+    public CustomMouseAdapter(int row, int col, PrintWriter out) {
+        this.row = row;
+        this.col = col;
+        this.out = out;
+    }
+
+    @Override
+    public void mouseClicked(MouseEvent mouseEvent) {
+        int index = row * Board.COL + col;
+        out.println(index);
     }
 }
